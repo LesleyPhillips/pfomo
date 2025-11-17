@@ -1,11 +1,131 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lesley</title>
+    <style>
+        body { font-family: monospace; background-color: #000; color: #00ff00; padding: 20px; }
+        #terminal { width: 100%; height: 400px; overflow-y: auto; white-space: pre-wrap; }
+        #input-line { display: flex; }
+        #input { background: transparent; color: #0f0; border: none; outline: none; font-family: monospace; width: 100%; }
+    </style>
 </head>
 <body>
 
-Lesley is near...
+    <div id="terminal"></div>
+
+    <script>
+        const terminal = document.getElementById("terminal");
+        let commandHistory = [];
+        let historyIndex = -1;
+        let userip = ""; // Global variable
+
+        async function initializeGlobalVars() {
+            userip = await getUserIP();
+        }
+
+        async function getUserIP() {
+            try {
+                const response = await fetch("https://api64.ipify.org?format=json");
+                const data = await response.json();
+                return data.ip;
+            } catch (error) {
+                return "Unknown";
+            }
+        }
+
+        function version() {
+            return "pfomo.com 20251116-2120";
+        }
+
+        function whoami() {
+            return {
+                browser: navigator.userAgent,
+                language: navigator.language || navigator.userLanguage,
+                platform: navigator.platform,
+                screenResolution: `${window.screen.width}x${window.screen.height}`,
+                timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                ip: userip,
+            };
+        }
+        
+        function printToTerminal(text = "") {
+            terminal.innerHTML += text + "\n";
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        function addInputLine() {
+            const inputLine = document.createElement("div");
+            inputLine.id = "input-line";
+            inputLine.innerHTML = `<span>></span> <span contenteditable="true" id="input"></span>`;
+            terminal.appendChild(inputLine);
+            document.getElementById("input").focus();
+            document.getElementById("input").addEventListener("keydown", handleCommand);
+        }
+
+        function handleCommand(event) {
+            const input = document.getElementById("input");
+            if (event.key === "Enter") {
+                event.preventDefault();
+                const command = input.innerText.trim();
+                input.removeAttribute("id");
+                input.removeAttribute("contenteditable");
+
+                if (command) {
+                    commandHistory.push(command);
+                    historyIndex = commandHistory.length;
+                    executeCommand(command);
+                }
+                addInputLine();
+            } else if (event.key === "ArrowUp" && historyIndex > 0) {
+                historyIndex--;
+                input.innerText = commandHistory[historyIndex];
+            } else if (event.key === "ArrowDown" && historyIndex < commandHistory.length - 1) {
+                historyIndex++;
+                input.innerText = commandHistory[historyIndex] || "";
+            }
+        }
+
+        function executeCommand(command) {
+            let output = "";
+
+            switch (command.toLowerCase()) {
+                case "dir":
+                    output = "[mock directory output]\nfile1.txt\nfile2.exe\nfolder1\n";
+                    break;
+                case "echo":
+                    output = "Say what?";
+                    break;
+                case "cls":
+                    terminal.innerHTML = "";
+                    printToTerminal("Lesley is near....");
+                    // addInputLine();
+                    return;
+                case "help":
+                    output = "Available commands: cls, help, version, whoami, whoislesley";
+                    break;
+                case "version":
+                    output = version();
+                    break;
+                case "whoami":
+                    output = JSON.stringify(whoami(), null, " ");
+                    break;
+                case "whoislesley":
+                    printToTerminal("Blog: https://lesley-o0.blogspot.com");
+                    printToTerminal("LinkedIn: https://www.linkedin.com/in/lesley-phillips-ii");
+                    break;
+                default:
+                    output = `'${command}' is not recognized as an internal or external command.`;
+            }
+
+            printToTerminal(output);
+        }
+
+        initializeGlobalVars();
+        printToTerminal("Lesley is near....");
+        addInputLine();
+    </script>
 
 </body>
 </html>
