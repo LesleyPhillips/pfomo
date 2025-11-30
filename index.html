@@ -6,9 +6,19 @@
     <title>Lesley</title>
     <style>
         body { font-family: monospace; background-color: #000; color: #00ff00; padding: 20px; }
-        #terminal { width: 100%; height: 400px; overflow-y: auto; white-space: pre-wrap; }
+        #terminal { width: 100%; height: 600; overflow-y: auto; white-space: pre-wrap; }
         #input-line { display: flex; }
         #input { background: transparent; color: #0f0; border: none; outline: none; font-family: monospace; width: 100%; }
+        /* blinking horizontal cursor used inside buffer */
+        .cursor {
+            display: inline-block;
+            border-bottom: 2px solid #0f0;
+            color: #0f0;
+            background: transparent;
+            line-height: 1;
+            animation: blink 1s steps(1) infinite;
+        }
+        @keyframes blink { 50% { border-color: transparent; } }
     </style>
 </head>
 <body>
@@ -20,6 +30,25 @@
         let commandHistory = [];
         let historyIndex = -1;
         let userip = ""; // Global variable
+
+        // Screen buffer: 30 lines x 80 chars
+        let screenBuffer = Array(30).fill("").map(() => " ".repeat(80));
+        let cursorX = 0;
+        let cursorY = 0;
+
+        // Help text for commands
+        const helpMap = {
+            cls: { desc: 'Clear the screen and show welcome message', usage: 'cls' },
+            drawcorners: { desc: 'Draw solid blocks in the four corners of the screen', usage: 'drawcorners' },
+            drawrandomblocks: { desc: 'Draw N random block characters on the screen (default 100)', usage: 'drawrandomblocks [N]' },
+            dir: { desc: 'Show a mock directory listing', usage: 'dir' },
+            echo: { desc: 'Echo the arguments back', usage: 'echo <text>' },
+            help: { desc: 'Show help. With an argument, show detailed help for that command', usage: 'help [command]' },
+            version: { desc: 'Show version string', usage: 'version' },
+            whoami: { desc: 'Show browser / platform / IP info', usage: 'whoami' },
+            whoislesley: { desc: 'Show Lesley contact links', usage: 'whoislesley' }
+        };
+
 
         async function initializeGlobalVars() {
             userip = await getUserIP();
@@ -36,7 +65,7 @@
         }
 
         function version() {
-            return "pfomo.com 20251116-2120";
+            return "pfomo.com 20251117-1402";
         }
 
         function whoami() {
@@ -46,64 +75,282 @@
                 platform: navigator.platform,
                 screenResolution: `${window.screen.width}x${window.screen.height}`,
                 timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                ip: userip,
+                ip: userip || "Unknown",
             };
         }
-        
-        function printToTerminal(text = "") {
-            terminal.innerHTML += text + "\n";
-            terminal.scrollTop = terminal.scrollHeight;
+
+        // Enable prompt inside the buffer and capture keyboard input globally
+        let typingEnabled = false;
+
+        function setLineText(y, text) {
+            // write text starting at column 1, preserving column 0 for prompt
+            const maxLen = Math.min(79, text.length);
+            let line = screenBuffer[y].split('');
+            for (let i = 0; i < 79; i++) {
+                line[i + 1] = i < text.length ? text[i] : ' ';
+            }
+            screenBuffer[y] = line.join('');
+        }
+
+        function getLineText(y) {
+            return (screenBuffer[y] || '').slice(1).replace(/\s+$/,'');
         }
 
         function addInputLine() {
-            const inputLine = document.createElement("div");
-            inputLine.id = "input-line";
-            inputLine.innerHTML = `<span>></span> <span contenteditable="true" id="input"></span>`;
-            terminal.appendChild(inputLine);
-            document.getElementById("input").focus();
-            document.getElementById("input").addEventListener("keydown", handleCommand);
+            // Put prompt char '>' at column 0 of current cursor line and position cursor at column 1
+            if (cursorY < 0) cursorY = 0;
+            if (cursorY > 29) cursorY = 29;
+            writeAt(0, cursorY, '>');
+            // clear rest of the line after prompt
+            setLineText(cursorY, '');
+            cursorX = 1;
+            typingEnabled = true;
+            render();
+        }
+        
+        function writeAt(x, y, char) {
+            if (y < 0 || y >= 30 || x < 0 || x >= 80) return;
+            let line = screenBuffer[y].split('');
+            line[x] = char;
+            screenBuffer[y] = line.join('');
         }
 
-        function handleCommand(event) {
-            const input = document.getElementById("input");
-            if (event.key === "Enter") {
+        function printToTerminal(text = "") {
+            // Add text at current cursor position, wrapping and scrolling as needed
+            for (let char of text) {
+                if (char === '\n') {
+                    cursorY++;
+                    cursorX = 0;
+                } else {
+                    writeAt(cursorX, cursorY, char);
+                    cursorX++;
+                }
+                // Auto-wrap and scroll
+                if (cursorX >= 80) {
+                    cursorX = 0;
+                    cursorY++;
+                }
+                if (cursorY >= 30) {
+                    scroll();
+                }
+            }
+            render();
+        }
+
+        function scroll() {
+            screenBuffer.shift(); // Remove top line
+            screenBuffer.push(" ".repeat(80)); // Add blank line at bottom
+            cursorY = 29;
+        }
+
+        function render() {
+            // Convert buffer to HTML with proper spacing and draw a blinking horizontal cursor
+            const lines = [];
+            for (let y = 0; y < screenBuffer.length; y++) {
+                const line = screenBuffer[y];
+                if (y === cursorY) {
+                    let chars = [];
+                    for (let x = 0; x < line.length; x++) {
+                        let ch = line[x];
+                        // escape
+                        if (ch === '<') ch = '&lt;';
+                        if (ch === '>') ch = '&gt;';
+                        if (x === cursorX) {
+                            // Show the character at the cursor position with a blinking horizontal line (border-bottom)
+                            // Keep the underlying character visible so typing replaces it naturally.
+                            const displayChar = ch === ' ' ? '&nbsp;' : ch;
+                            chars.push(`<span class="cursor">${displayChar}</span>`);
+                        } else {
+                            // Normal character
+                            chars.push(ch === ' ' ? '&nbsp;' : ch);
+                        }
+                    }
+                    lines.push(chars.join(''));
+                } else {
+                    // non-cursor lines: replace spaces with &nbsp; to preserve spacing
+                    lines.push(line.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/ /g, '&nbsp;'));
+                }
+            }
+            terminal.innerHTML = `<pre style="font-family:monospace;">${lines.join('\n')}</pre>`;
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        function clearScreen() {
+            // Reset buffer and place the welcome message exactly at row 0
+            screenBuffer = Array(30).fill("").map(() => " ".repeat(80));
+            const msg = "Lesley is near....";
+            // Write message into line 0 and pad to full width so coordinates are stable
+            screenBuffer[0] = msg + " ".repeat(Math.max(0, 80 - msg.length));
+            // Position cursor at column 0 of the next line (row 1)
+            cursorX = 0;
+            cursorY = 1;
+            render();
+        }
+
+        // Draw solid blocks in corners: (0,0), (79,0), (0,29), (79,29)
+        function drawCorners() {
+            writeAt(0, 0, '█');
+            writeAt(79, 0, '█');
+            writeAt(0, 29, '█');
+            writeAt(79, 29, '█');
+            render();
+        }
+
+        // a function to draw a number 100 random blocks within the screen
+        function drawRandomBlocks(maxDots=100) {
+            for (let i = 0; i < maxDots; i++) {
+                const x = Math.floor(Math.random() * 80);
+                const y = Math.floor(Math.random() * 30);
+                writeAt(x, y, '█');
+            }
+            render();
+        }
+
+        function handleKey(event) {
+            if (!typingEnabled) return;
+
+            // Ignore modifier-only events
+            if (event.ctrlKey || event.metaKey) return;
+
+            if (event.key === 'Enter') {
                 event.preventDefault();
-                const command = input.innerText.trim();
-                input.removeAttribute("id");
-                input.removeAttribute("contenteditable");
+                // capture the command from the current input line
+                const inputLineY = cursorY;
+                const command = getLineText(inputLineY).trim();
+                // disable typing while command runs
+                typingEnabled = false;
 
                 if (command) {
+                    // save to history first
                     commandHistory.push(command);
                     historyIndex = commandHistory.length;
+
+                    // set cursor to the line below the input so output prints there
+                    cursorY = inputLineY + 1;
+                    cursorX = 0;
+                    if (cursorY >= 30) scroll();
+
                     executeCommand(command);
+
+                    // after printing output, move to the next line for the prompt
+                    cursorY = cursorY + 1;
+                    cursorX = 0;
+                    if (cursorY >= 30) scroll();
+                } else {
+                    // just move to next line (no output)
+                    cursorY = inputLineY + 1;
+                    cursorX = 0;
+                    if (cursorY >= 30) scroll();
                 }
+
+                // Prepare next input line
                 addInputLine();
-            } else if (event.key === "ArrowUp" && historyIndex > 0) {
-                historyIndex--;
-                input.innerText = commandHistory[historyIndex];
-            } else if (event.key === "ArrowDown" && historyIndex < commandHistory.length - 1) {
-                historyIndex++;
-                input.innerText = commandHistory[historyIndex] || "";
+                return;
+            }
+
+            if (event.key === 'Backspace') {
+                event.preventDefault();
+                if (cursorX > 1) {
+                    cursorX--;
+                    writeAt(cursorX, cursorY, ' ');
+                    render();
+                }
+                return;
+            }
+
+            if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                if (commandHistory.length === 0) return;
+                if (historyIndex === -1) {
+                    historyIndex = commandHistory.length - 1;
+                } else if (historyIndex > 0) {
+                    historyIndex--;
+                }
+                const entry = commandHistory[historyIndex] || '';
+                setLineText(cursorY, entry);
+                cursorX = 1 + entry.length;
+                render();
+                return;
+            }
+
+            if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                if (commandHistory.length === 0) return;
+                if (historyIndex === -1) return;
+                if (historyIndex < commandHistory.length - 1) {
+                    historyIndex++;
+                    const entry = commandHistory[historyIndex] || '';
+                    setLineText(cursorY, entry);
+                    cursorX = 1 + entry.length;
+                } else {
+                    // past the end -> clear line
+                    historyIndex = -1;
+                    setLineText(cursorY, '');
+                    cursorX = 1;
+                }
+                render();
+                return;
+            }
+
+            // Printable characters
+            if (event.key.length === 1) {
+                event.preventDefault();
+                writeAt(cursorX, cursorY, event.key);
+                cursorX++;
+                if (cursorX >= 80) {
+                    cursorX = 0;
+                    cursorY++;
+                }
+                if (cursorY >= 30) scroll();
+                render();
             }
         }
+
+        // Attach global key handler
+        window.addEventListener('keydown', handleKey);
 
         function executeCommand(command) {
             let output = "";
 
-            switch (command.toLowerCase()) {
+            // Split into keyword + args
+            const cmdParts = command.trim().split(/\s+/);
+            const cmdKeyword = cmdParts[0].toLowerCase();
+            const cmdArgs = cmdParts.slice(1);
+
+            switch (cmdKeyword) {
+                case "cls":
+                    clearScreen();
+                    return;
+                case "drawcorners":
+                    drawCorners();
+                    break;  
+                case "drawrandomblocks": 
+                    // args[0] may contain the number of blocks to draw
+                    const n = cmdArgs[0] ? parseInt(cmdArgs[0], 10) : NaN;
+                    const maxDots = Number.isFinite(n) && n > 0 ? n : 100;
+                    drawRandomBlocks(maxDots);
+                    break;
                 case "dir":
                     output = "[mock directory output]\nfile1.txt\nfile2.exe\nfolder1\n";
                     break;
                 case "echo":
-                    output = "Say what?";
+                    // Use the parsed cmdParts/cmdArgs so behavior is consistent
+                    output = cmdArgs.join(" ") || "Say what?";
                     break;
-                case "cls":
-                    terminal.innerHTML = "";
-                    printToTerminal("Lesley is near....");
-                    // addInputLine();
-                    return;
-                case "help":
-                    output = "Available commands: cls, help, version, whoami, whoislesley";
+                case "help": // list all available commands or help for a specific command
+                    if (cmdArgs.length > 0) {
+                        const helpCmd = cmdArgs[0].toLowerCase();
+                        if (helpMap[helpCmd]) {
+                            output = `${helpCmd}:\nDescription: ${helpMap[helpCmd].desc}\nUsage: ${helpMap[helpCmd].usage}`;
+                        } else {
+                            output = `No help available for unknown command: ${helpCmd}`;
+                        }
+                    } else {
+                        // list all commands listed in helpMap
+                        output = "Available commands:\n" + Object.keys(helpMap).map(cmd => {
+                            return `${cmd} - ${helpMap[cmd].desc}`;
+                        }).join("\n");
+                    }
                     break;
                 case "version":
                     output = version();
@@ -116,15 +363,17 @@
                     printToTerminal("LinkedIn: https://www.linkedin.com/in/lesley-phillips-ii");
                     break;
                 default:
-                    output = `'${command}' is not recognized as an internal or external command.`;
+                    output = "UNKNOW COMMAND";
             }
 
             printToTerminal(output);
         }
 
-        initializeGlobalVars();
-        printToTerminal("Lesley is near....");
-        addInputLine();
+        (async () => {
+            await initializeGlobalVars();
+            clearScreen();
+            addInputLine();
+        })();
     </script>
 
 </body>
