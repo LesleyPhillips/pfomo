@@ -23,7 +23,10 @@
 </head>
 <body>
 
-    <div id="terminal"></div>
+        <div id="terminal"></div>
+        <!-- Hidden real input used to trigger iOS keyboard and capture text input -->
+        <input id="hidden-input" type="text" inputmode="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+            style="position:fixed; left:8px; bottom:8px; width:1px; height:20px; opacity:0; z-index:1000;" />
 
     <script>
         const terminal = document.getElementById("terminal");
@@ -308,6 +311,81 @@
 
         // Attach global key handler
         window.addEventListener('keydown', handleKey);
+
+        // --- Mobile / Android/iOS support: hidden input to trigger keyboard ---
+        const hiddenInput = document.getElementById('hidden-input');
+        let isComposing = false;
+
+        // Focus hidden input when user taps the terminal so mobile shows keyboard
+        const focusHiddenInput = (e) => {
+            try {
+                hiddenInput.focus();
+                hiddenInput.setSelectionRange(hiddenInput.value.length, hiddenInput.value.length);
+            } catch (err) { /* ignore */ }
+            // prevent default to avoid accidental text selection in the page
+            if (e && e.preventDefault) e.preventDefault();
+        };
+
+        terminal.addEventListener('touchstart', focusHiddenInput, { passive: false });
+        terminal.addEventListener('pointerdown', (e) => { focusHiddenInput(e); }, { passive: true });
+        terminal.addEventListener('click', (e) => { focusHiddenInput(e); }, { passive: true });
+
+        // Composition (IME) handling for Android/iOS
+        hiddenInput.addEventListener('compositionstart', () => { isComposing = true; });
+        hiddenInput.addEventListener('compositionupdate', () => { /* no-op for now */ });
+        hiddenInput.addEventListener('compositionend', (e) => {
+            isComposing = false;
+            const composed = e.data || hiddenInput.value || '';
+            if (composed) {
+                for (const ch of composed) {
+                    writeAt(cursorX, cursorY, ch);
+                    cursorX++;
+                    if (cursorX >= 80) { cursorX = 0; cursorY++; }
+                    if (cursorY >= 30) scroll();
+                }
+                hiddenInput.value = '';
+                render();
+            }
+        });
+
+        // Forward characters typed into the hidden input into our buffer
+        hiddenInput.addEventListener('input', (e) => {
+            if (isComposing) return; // wait until compositionend
+            const v = hiddenInput.value;
+            if (!v) return;
+            // For each character entered, emulate printable-character handling
+            for (const ch of v) {
+                if (ch === '\n' || ch === '\r') {
+                    // emulate Enter
+                    const enterEvent = new KeyboardEvent('keydown', { key: 'Enter' });
+                    handleKey(enterEvent);
+                } else {
+                    writeAt(cursorX, cursorY, ch);
+                    cursorX++;
+                    if (cursorX >= 80) { cursorX = 0; cursorY++; }
+                    if (cursorY >= 30) scroll();
+                }
+            }
+            hiddenInput.value = '';
+            render();
+        });
+
+        // Map Backspace and Enter from hidden input keydown; forward arrows too
+        hiddenInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Backspace' || e.key === 'Enter' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                e.preventDefault();
+                const ev = new KeyboardEvent('keydown', { key: e.key });
+                handleKey(ev);
+            }
+        });
+
+        // Ensure hidden input is focused when we create a new prompt
+        const oldAddInputLine = addInputLine;
+        function addInputLine() {
+            oldAddInputLine();
+            // focus hidden input so iOS keyboard appears
+            try { hiddenInput.focus(); } catch (err) { /* ignore */ }
+        }
 
         function executeCommand(command) {
             let output = "";
