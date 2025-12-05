@@ -2,13 +2,15 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>pfomo.com</title>
     <style>
-        body { font-family: monospace; background-color: #000; color: #00ff00; padding: 20px; }
-        #terminal { width: 100%; height: 600; overflow-y: auto; white-space: pre-wrap; }
+        body { font-family: monospace; background-color: #000; color: #00ff00; padding: 10px; margin: 0; touch-action: manipulation; }
+        #terminal { width: 100%; height: 90vh; overflow-y: auto; white-space: pre-wrap; -webkit-tap-highlight-color: transparent; }
         #input-line { display: flex; }
         #input { background: transparent; color: #0f0; border: none; outline: none; font-family: monospace; width: 100%; }
+        /* Hidden input field for mobile keyboard */
+        #mobile-input { position: absolute; left: -9999px; opacity: 0; }
         /* blinking horizontal cursor used inside buffer */
         .cursor {
             display: inline-block;
@@ -24,17 +26,27 @@
 <body>
 
     <div id="terminal"></div>
+    <input type="text" id="mobile-input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
 
     <script>
         const terminal = document.getElementById("terminal");
+        const mobileInput = document.getElementById("mobile-input");
         let commandHistory = [];
         let historyIndex = -1;
         let userip = ""; // Global variable
+        let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
         // Screen buffer: 30 lines x 80 chars
         let screenBuffer = Array(30).fill("").map(() => " ".repeat(80));
         let cursorX = 0;
         let cursorY = 0;
+
+        //
+        // Commands and help registry
+        //   
+
+        // Command registry
+        const commandRegistry = {};
 
         // Help text for commands
         const helpMap = {
@@ -43,16 +55,66 @@
             drawrandomblocks: { desc: 'Draw N random block characters on the screen (default 100)', usage: 'drawrandomblocks [N]' },
             dir: { desc: 'Show a mock directory listing', usage: 'dir' },
             echo: { desc: 'Echo the arguments back', usage: 'echo <text>' },
-            help: { desc: 'Show help. With an argument, show detailed help for that command', usage: 'help [command]' },
+            help: { desc: 'Show available commands. Use "help more" for details or "help [command]" for specific usage', usage: 'help [command|more]' },
             version: { desc: 'Show version string', usage: 'version' },
             whoami: { desc: 'Show browser / platform / IP info', usage: 'whoami' },
             whoislesley: { desc: 'Show Lesley contact links', usage: 'whoislesley' }
         };
 
-
-        async function initializeGlobalVars() {
-            userip = await getUserIP();
+        function registerCommand(name, fn, help) {
+            commandRegistry[name.toLowerCase()] = fn;
+            if (help) helpMap[name.toLowerCase()] = { desc: help, usage: name };
         }
+
+        // Register built-in commands using the registry
+        registerCommand('cls', () => { Terminal.clearScreen(); });
+        registerCommand('drawcorners', () => { cmdDrawCorners(); }, 'Draw blocks in the four corners');
+        registerCommand('drawrandomblocks', (args) => { const n = args[0] ? parseInt(args[0],10) : NaN; const maxDots = Number.isFinite(n) && n>0 ? n : 100; drawRandomBlocks(maxDots); }, 'Draw N random blocks');
+        registerCommand('dir', () => { printToTerminal("[mock directory output]\nfile1.txt\nfile2.exe\nfolder1\n"); }, 'Show mock directory');
+        registerCommand('echo', (args) => { printToTerminal(args.join(' ') || 'Say what?'); }, 'Echo text');
+        registerCommand('help', (args) => {
+            if (args.length > 0) {
+                const target = args[0].toLowerCase();
+                if (target === 'more') {
+                    // help more - show detailed list with descriptions
+                    printToTerminal('Available commands:\n');
+                    const keys = Object.keys(helpMap).sort();
+                    for (const k of keys) {
+                        printToTerminal(`${k}: ${helpMap[k].desc}\n`);
+                    }
+                } else if (helpMap[target]) {
+                    // help [command] - show specific command with usage
+                    printToTerminal(`${target}: ${helpMap[target].desc} ${helpMap[target].usage}`);
+                } else {
+                    printToTerminal(`No help available for '${target}'.`);
+                }
+            } else {
+                // help - show comma-separated list
+                const keys = Object.keys(helpMap).sort();
+                printToTerminal(keys.join(', '));
+                printToTerminal('\nAdditional help: help more');
+            }
+        });
+        registerCommand('version', () => { printToTerminal(version()); }, 'Show version');
+        registerCommand('whoami', () => { printToTerminal(JSON.stringify(whoami(), null, ' ')); }, 'Show client info');
+        registerCommand('whoislesley', () => { printToTerminal('Blog: https://lesley-o0.blogspot.com\n'); printToTerminal('LinkedIn: https://www.linkedin.com/in/lesley-phillips-ii'); }, 'Show Lesley links');
+
+
+
+        // Terminal API and command registry
+        const Terminal = {
+            writeAt: (x,y,ch) => writeAt(x,y,ch),
+            print: (text) => printToTerminal(text),
+            render: () => render(),
+            setLineText: (y,text) => setLineText(y,text),
+            getLineText: (y) => getLineText(y),
+            addInputLine: () => addInputLine(),
+            scroll: () => scroll(),
+            clearScreen: () => clearScreen(),
+            getCursor: () => ({ x: cursorX, y: cursorY }),
+            setCursor: (x,y) => { cursorX = x; cursorY = y; },
+            screenBuffer
+        };
 
         async function getUserIP() {
             try {
@@ -65,7 +127,7 @@
         }
 
         function version() {
-            return "pfomo.com 20251117-1402";
+            return "pfomo.com 20251205-1130";
         }
 
         function whoami() {
@@ -181,14 +243,19 @@
             const msg = "Lesley is near....";
             // Write message into line 0 and pad to full width so coordinates are stable
             screenBuffer[0] = msg + " ".repeat(Math.max(0, 80 - msg.length));
-            // Position cursor at column 0 of the next line (row 1)
+            // Position cursor at column 0 of row 1 (handleKey will add spacing before prompt)
             cursorX = 0;
             cursorY = 1;
             render();
         }
 
+        // Setup
+        async function initializeGlobalVars() {
+            userip = await getUserIP();
+        }
+
         // Draw solid blocks in corners: (0,0), (79,0), (0,29), (79,29)
-        function drawCorners() {
+        function cmdDrawCorners() {
             writeAt(0, 0, '█');
             writeAt(79, 0, '█');
             writeAt(0, 29, '█');
@@ -309,69 +376,74 @@
         // Attach global key handler
         window.addEventListener('keydown', handleKey);
 
-        function executeCommand(command) {
-            let output = "";
-
-            // Split into keyword + args
-            const cmdParts = command.trim().split(/\s+/);
-            const cmdKeyword = cmdParts[0].toLowerCase();
-            const cmdArgs = cmdParts.slice(1);
-
-            switch (cmdKeyword) {
-                case "cls":
-                    clearScreen();
-                    return;
-                case "drawcorners":
-                    drawCorners();
-                    break;  
-                case "drawrandomblocks": 
-                    // args[0] may contain the number of blocks to draw
-                    const n = cmdArgs[0] ? parseInt(cmdArgs[0], 10) : NaN;
-                    const maxDots = Number.isFinite(n) && n > 0 ? n : 100;
-                    drawRandomBlocks(maxDots);
-                    break;
-                case "dir":
-                    output = "[mock directory output]\nfile1.txt\nfile2.exe\nfolder1\n";
-                    break;
-                case "echo":
-                    // Use the parsed cmdParts/cmdArgs so behavior is consistent
-                    output = cmdArgs.join(" ") || "Say what?";
-                    break;
-                case "help": // list all available commands or help for a specific command
-                    if (cmdArgs.length > 0) {
-                        const helpCmd = cmdArgs[0].toLowerCase();
-                        if (helpMap[helpCmd]) {
-                            output = `${helpCmd}:\nDescription: ${helpMap[helpCmd].desc}\nUsage: ${helpMap[helpCmd].usage}`;
-                        } else {
-                            output = `No help available for unknown command: ${helpCmd}`;
-                        }
-                    } else {
-                        // list all commands listed in helpMap
-                        output = "Available commands:\n" + Object.keys(helpMap).map(cmd => {
-                            return `${cmd} - ${helpMap[cmd].desc}`;
-                        }).join("\n");
-                    }
-                    break;
-                case "version":
-                    output = version();
-                    break;
-                case "whoami":
-                    output = JSON.stringify(whoami(), null, " ");
-                    break;
-                case "whoislesley":
-                    printToTerminal("Blog: https://lesley-o0.blogspot.com");
-                    printToTerminal("LinkedIn: https://www.linkedin.com/in/lesley-phillips-ii");
-                    break;
-                default:
-                    output = "UNKNOW COMMAND";
+        // Mobile support: focus hidden input on terminal tap/click
+        terminal.addEventListener('click', () => {
+            if (isMobile && typingEnabled) {
+                mobileInput.focus();
             }
+        });
 
-            printToTerminal(output);
+        terminal.addEventListener('touchstart', (e) => {
+            if (typingEnabled) {
+                mobileInput.focus();
+            }
+        }, { passive: true });
+
+        // Handle mobile input field (only on mobile devices)
+        if (isMobile) {
+            mobileInput.addEventListener('input', (e) => {
+                if (!typingEnabled) return;
+                const char = e.data;
+                if (char && char.length === 1) {
+                    writeAt(cursorX, cursorY, char);
+                    cursorX++;
+                    if (cursorX >= 80) {
+                        cursorX = 0;
+                        cursorY++;
+                    }
+                    if (cursorY >= 30) scroll();
+                    render();
+                }
+                mobileInput.value = ''; // Clear after processing
+            });
+
+            // Handle mobile Enter key
+            mobileInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleKey({ key: 'Enter', preventDefault: () => {} });
+                    mobileInput.blur();
+                    setTimeout(() => { if (typingEnabled) mobileInput.focus(); }, 100);
+                } else if (e.key === 'Backspace') {
+                    e.preventDefault();
+                    handleKey({ key: 'Backspace', preventDefault: () => {} });
+                }
+            });
         }
 
+        function executeCommand(command) {
+            const cmdParts = command.trim().split(/\s+/);
+            const kw = cmdParts[0].toLowerCase();
+            const args = cmdParts.slice(1);
+
+            const cmdFn = commandRegistry[kw];
+            if (cmdFn) {
+                try {
+                    cmdFn(args, Terminal);
+                } catch (err) {
+                    printToTerminal(`Error running command '${kw}': ${err.message}`);
+                }
+                return;
+            }
+
+            printToTerminal("UNKNOW COMMAND");
+        }
+
+        
         (async () => {
             await initializeGlobalVars();
             clearScreen();
+            cursorY++; // Add blank line spacing after welcome message
             addInputLine();
         })();
     </script>
