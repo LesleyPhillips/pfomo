@@ -29,6 +29,10 @@
     <input type="text" id="mobile-input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
 
     <script>
+        function version() {
+            return "pfomo.com 20251205-1130";
+        }
+
         const terminal = document.getElementById("terminal");
         const mobileInput = document.getElementById("mobile-input");
         let commandHistory = [];
@@ -36,127 +40,34 @@
         let userip = ""; // Global variable
         let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
+        //   ****   ****  ****   *****  *****  *   *
+        //  *      *      *   *  *      *      **  *
+        //   ***   *      ****   ***    ***    * * *
+        //      *  *      *  *   *      *      *  **
+        //  ****    ****  *   *  *****  *****  *   *
+
         // Screen buffer: 30 lines x 80 chars
         let screenBuffer = Array(30).fill("").map(() => " ".repeat(80));
         let cursorX = 0;
         let cursorY = 0;
 
-        //
-        // Commands and help registry
-        //   
-
-        // Command registry
-        const commandRegistry = {};
-
-        // Help text for commands
-        const helpMap = {
-            cls: { desc: 'Clear the screen and show welcome message', usage: 'cls' },
-            drawcorners: { desc: 'Draw solid blocks in the four corners of the screen', usage: 'drawcorners' },
-            drawrandomblocks: { desc: 'Draw N random block characters on the screen (default 100)', usage: 'drawrandomblocks [N]' },
-            dir: { desc: 'Show a mock directory listing', usage: 'dir' },
-            echo: { desc: 'Echo the arguments back', usage: 'echo <text>' },
-            help: { desc: 'Show available commands. Use "help more" for details or "help [command]" for specific usage', usage: 'help [command|more]' },
-            version: { desc: 'Show version string', usage: 'version' },
-            whoami: { desc: 'Show browser / platform / IP info', usage: 'whoami' },
-            whoislesley: { desc: 'Show Lesley contact links', usage: 'whoislesley' }
-        };
-
-        function registerCommand(name, fn, help) {
-            commandRegistry[name.toLowerCase()] = fn;
-            if (help) helpMap[name.toLowerCase()] = { desc: help, usage: name };
-        }
-
-        // Register built-in commands using the registry
-        registerCommand('cls', () => { Terminal.clearScreen(); });
-        registerCommand('drawcorners', () => { cmdDrawCorners(); }, 'Draw blocks in the four corners');
-        registerCommand('drawrandomblocks', (args) => { const n = args[0] ? parseInt(args[0],10) : NaN; const maxDots = Number.isFinite(n) && n>0 ? n : 100; drawRandomBlocks(maxDots); }, 'Draw N random blocks');
-        registerCommand('dir', () => { printToTerminal("[mock directory output]\nfile1.txt\nfile2.exe\nfolder1\n"); }, 'Show mock directory');
-        registerCommand('echo', (args) => { printToTerminal(args.join(' ') || 'Say what?'); }, 'Echo text');
-        registerCommand('help', (args) => {
-            if (args.length > 0) {
-                const target = args[0].toLowerCase();
-                if (target === 'more') {
-                    // help more - show detailed list with descriptions
-                    printToTerminal('Available commands:\n');
-                    const keys = Object.keys(helpMap).sort();
-                    for (const k of keys) {
-                        printToTerminal(`${k}: ${helpMap[k].desc}\n`);
-                    }
-                } else if (helpMap[target]) {
-                    // help [command] - show specific command with usage
-                    printToTerminal(`${target}: ${helpMap[target].desc} ${helpMap[target].usage}`);
-                } else {
-                    printToTerminal(`No help available for '${target}'.`);
-                }
-            } else {
-                // help - show comma-separated list
-                const keys = Object.keys(helpMap).sort();
-                printToTerminal(keys.join(', '));
-                printToTerminal('\nAdditional help: help more');
-            }
-        });
-        registerCommand('version', () => { printToTerminal(version()); }, 'Show version');
-        registerCommand('whoami', () => { printToTerminal(JSON.stringify(whoami(), null, ' ')); }, 'Show client info');
-        registerCommand('whoislesley', () => { printToTerminal('Blog: https://lesley-o0.blogspot.com\n'); printToTerminal('LinkedIn: https://www.linkedin.com/in/lesley-phillips-ii'); }, 'Show Lesley links');
-
-
-
         // Terminal API and command registry
         const Terminal = {
-            writeAt: (x,y,ch) => writeAt(x,y,ch),
-            print: (text) => printToTerminal(text),
-            render: () => render(),
-            setLineText: (y,text) => setLineText(y,text),
-            getLineText: (y) => getLineText(y),
+            screenBuffer,
             addInputLine: () => addInputLine(),
-            scroll: () => scroll(),
             clearScreen: () => clearScreen(),
             getCursor: () => ({ x: cursorX, y: cursorY }),
+            getLineText: (y) => getLineText(y),
+            print: (text) => printToTerminal(text),
+            render: () => render(),
+            scroll: () => scroll(),
             setCursor: (x,y) => { cursorX = x; cursorY = y; },
-            screenBuffer
+            setLineText: (y,text) => setLineText(y,text),
+            writeAt: (x,y,ch) => writeAt(x,y,ch)
         };
-
-        async function getUserIP() {
-            try {
-                const response = await fetch("https://api64.ipify.org?format=json");
-                const data = await response.json();
-                return data.ip;
-            } catch (error) {
-                return "Unknown";
-            }
-        }
-
-        function version() {
-            return "pfomo.com 20251205-1130";
-        }
-
-        function whoami() {
-            return {
-                browser: navigator.userAgent,
-                language: navigator.language || navigator.userLanguage,
-                platform: navigator.platform,
-                screenResolution: `${window.screen.width}x${window.screen.height}`,
-                timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                ip: userip || "Unknown",
-            };
-        }
 
         // Enable prompt inside the buffer and capture keyboard input globally
         let typingEnabled = false;
-
-        function setLineText(y, text) {
-            // write text starting at column 1, preserving column 0 for prompt
-            const maxLen = Math.min(79, text.length);
-            let line = screenBuffer[y].split('');
-            for (let i = 0; i < 79; i++) {
-                line[i + 1] = i < text.length ? text[i] : ' ';
-            }
-            screenBuffer[y] = line.join('');
-        }
-
-        function getLineText(y) {
-            return (screenBuffer[y] || '').slice(1).replace(/\s+$/,'');
-        }
 
         function addInputLine() {
             // Put prompt char '>' at column 0 of current cursor line and position cursor at column 1
@@ -169,12 +80,21 @@
             typingEnabled = true;
             render();
         }
-        
-        function writeAt(x, y, char) {
-            if (y < 0 || y >= 30 || x < 0 || x >= 80) return;
-            let line = screenBuffer[y].split('');
-            line[x] = char;
-            screenBuffer[y] = line.join('');
+
+        function clearScreen() {
+            // Reset buffer and place the welcome message exactly at row 0
+            screenBuffer = Array(30).fill("").map(() => " ".repeat(80));
+            const msg = "Lesley is near....";
+            // Write message into line 0 and pad to full width so coordinates are stable
+            screenBuffer[0] = msg + " ".repeat(Math.max(0, 80 - msg.length));
+            // Position cursor at column 0 of row 1 (handleKey will add spacing before prompt)
+            cursorX = 0;
+            cursorY = 1;
+            render();
+        }
+
+        function getLineText(y) {
+            return (screenBuffer[y] || '').slice(1).replace(/\s+$/,'');
         }
 
         function printToTerminal(text = "") {
@@ -205,6 +125,16 @@
             cursorY = 29;
         }
 
+        function setLineText(y, text) {
+            // write text starting at column 1, preserving column 0 for prompt
+            const maxLen = Math.min(79, text.length);
+            let line = screenBuffer[y].split('');
+            for (let i = 0; i < 79; i++) {
+                line[i + 1] = i < text.length ? text[i] : ' ';
+            }
+            screenBuffer[y] = line.join('');
+        }
+
         function render() {
             // Convert buffer to HTML with proper spacing and draw a blinking horizontal cursor
             const lines = [];
@@ -230,47 +160,49 @@
                     lines.push(chars.join(''));
                 } else {
                     // non-cursor lines: replace spaces with &nbsp; to preserve spacing
-                    lines.push(line.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/ /g, '&nbsp;'));
+                    let processedLine = line.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    // Make URLs clickable
+                    processedLine = processedLine.replace(
+                        /(https?:\/\/[^\s]+)/g,
+                        '<a href="$1" target="_blank" style="color: #00ff00; text-decoration: underline;">$1</a>'
+                    );
+                    processedLine = processedLine.replace(/ /g, '&nbsp;');
+                    lines.push(processedLine);
                 }
             }
             terminal.innerHTML = `<pre style="font-family:monospace;">${lines.join('\n')}</pre>`;
             terminal.scrollTop = terminal.scrollHeight;
         }
 
-        function clearScreen() {
-            // Reset buffer and place the welcome message exactly at row 0
-            screenBuffer = Array(30).fill("").map(() => " ".repeat(80));
-            const msg = "Lesley is near....";
-            // Write message into line 0 and pad to full width so coordinates are stable
-            screenBuffer[0] = msg + " ".repeat(Math.max(0, 80 - msg.length));
-            // Position cursor at column 0 of row 1 (handleKey will add spacing before prompt)
-            cursorX = 0;
-            cursorY = 1;
-            render();
+        function writeAt(x, y, char) {
+            if (y < 0 || y >= 30 || x < 0 || x >= 80) return;
+            let line = screenBuffer[y].split('');
+            line[x] = char;
+            screenBuffer[y] = line.join('');
         }
 
-        // Setup
-        async function initializeGlobalVars() {
-            userip = await getUserIP();
-        }
+        //   *   *  *****  *      ****   *****  ****    ****
+        //   *   *  *      *      *   *  *      *   *  *    
+        //   *****  ***    *      ****   ***    ****    *** 
+        //   *   *  *      *      *      *      *  *       *
+        //   *   *  *****  *****  *      *****  *   *  ****
 
-        // Draw solid blocks in corners: (0,0), (79,0), (0,29), (79,29)
-        function cmdDrawCorners() {
-            writeAt(0, 0, '█');
-            writeAt(79, 0, '█');
-            writeAt(0, 29, '█');
-            writeAt(79, 29, '█');
-            render();
-        }
+        function executeCommand(command) {
+            const cmdParts = command.trim().split(/\s+/);
+            const kw = cmdParts[0].toLowerCase();
+            const args = cmdParts.slice(1);
 
-        // a function to draw a number 100 random blocks within the screen
-        function drawRandomBlocks(maxDots=100) {
-            for (let i = 0; i < maxDots; i++) {
-                const x = Math.floor(Math.random() * 80);
-                const y = Math.floor(Math.random() * 30);
-                writeAt(x, y, '█');
+            const cmdFn = commandRegistry[kw];
+            if (cmdFn) {
+                try {
+                    cmdFn(args, Terminal);
+                } catch (err) {
+                    printToTerminal(`Error running command '${kw}': ${err.message}`);
+                }
+                return;
             }
-            render();
+
+            printToTerminal("UNKNOWN COMMAND");
         }
 
         function handleKey(event) {
@@ -421,25 +353,141 @@
             });
         }
 
-        function executeCommand(command) {
-            const cmdParts = command.trim().split(/\s+/);
-            const kw = cmdParts[0].toLowerCase();
-            const args = cmdParts.slice(1);
-
-            const cmdFn = commandRegistry[kw];
-            if (cmdFn) {
-                try {
-                    cmdFn(args, Terminal);
-                } catch (err) {
-                    printToTerminal(`Error running command '${kw}': ${err.message}`);
-                }
-                return;
+        async function getUserIP() {
+            try {
+                const response = await fetch("https://api64.ipify.org?format=json");
+                const data = await response.json();
+                return data.ip;
+            } catch (error) {
+                return "Unknown";
             }
-
-            printToTerminal("UNKNOW COMMAND");
         }
 
-        
+        //
+        // Commands and help
+        //   
+
+        // Command registry
+        const commandRegistry = {};
+
+        // Help text for commands
+        const helpMap = {
+            cls: { desc: 'Clear the screen and show welcome message', usage: 'cls' },
+            drawcorners: { desc: 'Draw solid blocks in the four corners of the screen', usage: 'drawcorners' },
+            drawrandomblocks: { desc: 'Draw N random block characters on the screen (default 100)', usage: 'drawrandomblocks [N]' },
+            dir: { desc: 'Show a mock directory listing', usage: 'dir' },
+            echo: { desc: 'Echo the arguments back', usage: 'echo <text>' },
+            help: { desc: 'Show available commands. Use "help more" for details or "help [command]" for specific usage', usage: 'help [command|more]' },
+            version: { desc: 'Show version string', usage: 'version' },
+            whoami: { desc: 'Show browser / platform / IP info', usage: 'whoami' },
+            whoislesley: { desc: 'Show Lesley contact links', usage: 'whoislesley' }
+        };
+
+        function registerCommand(name, fn, help) {
+            commandRegistry[name.toLowerCase()] = fn;
+            if (help) helpMap[name.toLowerCase()] = { desc: help, usage: name };
+        }
+
+        // Register built-in commands using the registry
+        registerCommand('cls', () => { cmdCls(); });
+        registerCommand('drawcorners', () => { cmdDrawCorners(); }, 'Draw blocks in the four corners');
+        registerCommand('drawrandomblocks', (args) => { cmdDrawRandomBlocks(args); }, 'Draw N random blocks');
+        registerCommand('dir', () => { cmdDir(); }, 'Show mock directory');
+        registerCommand('echo', (args) => { cmdEcho(args); }, 'Echo text');
+        registerCommand('help', (args) => { cmdHelp(args); });
+        registerCommand('version', () => { cmdVersion(); }, 'Show version');
+        registerCommand('whoami', () => { cmdWhoami(); }, 'Show client info');
+        registerCommand('whoislesley', () => { cmdWhoislesley(); }, 'Show Lesley links');
+
+        //
+        // Command implementations
+        //
+
+        function cmdCls() {
+            Terminal.clearScreen();
+        }
+
+        function cmdDir() {
+            printToTerminal("[mock directory output]\nfile1.txt\nfile2.exe\nfolder1\n");
+        }
+
+        function cmdEcho(args) {
+            printToTerminal(args.join(' ') || 'Say what?');
+        }
+
+        function cmdHelp(args) {
+            if (args.length > 0) {
+                const target = args[0].toLowerCase();
+                if (target === 'more') {
+                    // help more - show detailed list with descriptions
+                    printToTerminal('Available commands:\n');
+                    const keys = Object.keys(helpMap).sort();
+                    for (const k of keys) {
+                        printToTerminal(`${k}: ${helpMap[k].desc}\n`);
+                    }
+                } else if (helpMap[target]) {
+                    // help [command] - show specific command with usage
+                    printToTerminal(`${target}: ${helpMap[target].desc} ${helpMap[target].usage}`);
+                } else {
+                    printToTerminal(`No help available for '${target}'.`);
+                }
+            } else {
+                // help - show comma-separated list
+                const keys = Object.keys(helpMap).sort();
+                printToTerminal(keys.join(', '));
+                printToTerminal('\nAdditional help: help more');
+            }
+        }
+
+        function cmdVersion() {
+            printToTerminal(version());
+        }
+
+        function cmdWhoami() {
+            const info = {
+                browser: navigator.userAgent,
+                language: navigator.language || navigator.userLanguage,
+                platform: navigator.platform,
+                screenResolution: `${window.screen.width}x${window.screen.height}`,
+                timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                ip: userip || "Unknown",
+            };
+            printToTerminal(JSON.stringify(info, null, ' '));
+        }
+
+        function cmdWhoislesley() {
+            printToTerminal('Blog: https://lesley-o0.blogspot.com\n');
+            printToTerminal('LinkedIn: https://www.linkedin.com/in/lesley-phillips-ii');
+        }
+
+        // Draw solid blocks in corners: (0,0), (79,0), (0,29), (79,29)
+        function cmdDrawCorners() {
+            writeAt(0, 0, '█');
+            writeAt(79, 0, '█');
+            writeAt(0, 29, '█');
+            writeAt(79, 29, '█');
+            render();
+        }
+
+        // a function to draw a number 100 random blocks within the screen
+        function cmdDrawRandomBlocks(args) {
+            const n = args[0] ? parseInt(args[0],10) : NaN;
+            const maxDots = Number.isFinite(n) && n>0 ? n : 100;
+            for (let i = 0; i < maxDots; i++) {
+                const x = Math.floor(Math.random() * 80);
+                const y = Math.floor(Math.random() * 30);
+                writeAt(x, y, '█');
+            }
+            render();
+        }
+
+
+
+        // Setup
+        async function initializeGlobalVars() {
+            userip = await getUserIP();
+        }
+
         (async () => {
             await initializeGlobalVars();
             clearScreen();
