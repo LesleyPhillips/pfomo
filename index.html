@@ -67,6 +67,8 @@
         let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
         // Global variable for managing sound state
         let flgSound = false;
+        // Mobile paste button (created dynamically for iOS/Android clipboard UX)
+        let mobilePasteButton = null;
 
         //   ****   ****  ****   *****  *****  *   *
         //  *      *      *   *  *      *      **  *
@@ -118,6 +120,8 @@
             cursorX = 1;
             // Enable keyboard input for user typing
             typingEnabled = true;
+            // Update mobile paste UI state
+            updateMobilePasteButtonVisibility();
             // Record which row this prompt started on, for multi-line input collection
             inputStartY = cursorY;
             // Re-render the terminal to show the prompt
@@ -412,6 +416,7 @@
                 const inputLineY = cursorY;
                 // Disable typing while command executes
                 typingEnabled = false;
+                updateMobilePasteButtonVisibility();
 
                 // Async IIFE so we can await async commands before restoring the prompt
                 (async () => {
@@ -505,6 +510,56 @@
                 event.preventDefault();
                 insertTextAtCursor(event.key);
                 return;
+            }
+        }
+
+        // Function: setupMobilePasteButton - Creates a mobile-only Paste button
+        function setupMobilePasteButton() {
+            if (!isMobile || mobilePasteButton) return;
+            mobilePasteButton = document.createElement('button');
+            mobilePasteButton.id = 'mobile-paste-btn';
+            mobilePasteButton.textContent = 'Paste';
+            mobilePasteButton.style.position = 'fixed';
+            mobilePasteButton.style.right = '12px';
+            mobilePasteButton.style.bottom = '12px';
+            mobilePasteButton.style.zIndex = '9999';
+            mobilePasteButton.style.background = '#001a00';
+            mobilePasteButton.style.color = '#00ff00';
+            mobilePasteButton.style.border = '1px solid #00ff00';
+            mobilePasteButton.style.borderRadius = '4px';
+            mobilePasteButton.style.padding = '8px 12px';
+            mobilePasteButton.style.fontFamily = 'monospace';
+            mobilePasteButton.style.fontSize = '14px';
+            mobilePasteButton.style.display = 'none';
+            mobilePasteButton.addEventListener('click', handleMobilePasteButton);
+            document.body.appendChild(mobilePasteButton);
+        }
+
+        // Function: updateMobilePasteButtonVisibility - Shows paste button only when prompt is active
+        function updateMobilePasteButtonVisibility() {
+            if (!mobilePasteButton) return;
+            mobilePasteButton.style.display = (isMobile && typingEnabled) ? 'block' : 'none';
+        }
+
+        // Function: handleMobilePasteButton - Tries Clipboard API first, then manual prompt fallback
+        async function handleMobilePasteButton() {
+            if (!typingEnabled) return;
+            try {
+                if (!navigator.clipboard || !navigator.clipboard.readText) {
+                    throw new Error('Clipboard API unavailable');
+                }
+                const text = await navigator.clipboard.readText();
+                if (!text) {
+                    throw new Error('Clipboard is empty');
+                }
+                insertTextAtCursor(text);
+                if (mobileInput) mobileInput.focus();
+            } catch (error) {
+                const manual = window.prompt('Paste command text:', '');
+                if (manual) {
+                    insertTextAtCursor(manual);
+                }
+                if (mobileInput) mobileInput.focus();
             }
         }
 
@@ -948,6 +1003,9 @@
             cursorY++;
             // Step 4: Display first input prompt and enable typing
             addInputLine();
+            // Step 5: Create mobile paste button for iPhone/Android clipboard UX
+            setupMobilePasteButton();
+            updateMobilePasteButtonVisibility();
         })(); // Execute immediately
     </script>
 
