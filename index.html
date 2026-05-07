@@ -50,7 +50,7 @@
     <script>
         // Version function: returns current version string with date/time stamp
         function version() {
-            return "pfomo.com 20260506-1636";
+            return "pfomo.com 20260507-1257";
         }
 
         // DOM element reference: the terminal display container
@@ -667,43 +667,75 @@
         // and multiline ABC with explicit header lines.
         function buildABCFromInput(input) {
             const normalizedInput = String(input || '').replace(/\r/g, '').trim();
+
+            // Only required defaults
             const headers = {
                 X: "X:1",
-                T: "T:Con",
-                M: "M:4/4",
-                L: "L:1/4",
                 K: "K:C"
             };
+
+            // ABC-valid header letters (upper + lower case)
+            const HEADER = "BCDFGHIKLMmNOPQRrSsTUVWwXZ";
+
+            // Regex to detect header tokens
+            const headerRegex = new RegExp(`^\\s*([${HEADER}]):\\s*(.*?)\\s*$`, "i");
+
             let body = '';
 
+            // MULTI-LINE INPUT
             if (normalizedInput.includes('\n')) {
                 const bodyLines = [];
                 const lines = normalizedInput.split('\n');
+
                 for (const line of lines) {
-                    const headerMatch = line.match(/^\s*([XTMLK]):\s*(.*?)\s*$/i);
-                    if (headerMatch) {
-                        const key = headerMatch[1].toUpperCase();
-                        headers[key] = `${key}:${headerMatch[2]}`;
+                    const match = line.match(headerRegex);
+
+                    if (match) {
+                        const key = match[1].toUpperCase();
+                        const value = match[2].trim();
+                        headers[key] = `${key}:${value}`;
                     } else {
                         bodyLines.push(line);
                     }
                 }
+
                 body = bodyLines.join('\n');
-            } else {
+            }
+
+            // SINGLE-LINE INPUT
+            else {
                 const tokens = normalizedInput.split(/\s+/).filter(Boolean);
                 let index = 0;
+
                 while (index < tokens.length) {
-                    const headerMatch = tokens[index].match(/^([XTMLK]):(.+)$/i);
-                    if (!headerMatch) break;
-                    const key = headerMatch[1].toUpperCase();
-                    headers[key] = `${key}:${headerMatch[2]}`;
+                    const match = tokens[index].match(/^([BCDFGHIKLMmNOPQRrSsTUVWwXZ]):(.+)$/i);
+                    if (!match) break;
+
+                    const key = match[1].toUpperCase();
+                    const value = match[2].trim();
+                    headers[key] = `${key}:${value}`;
                     index++;
                 }
+
                 body = tokens.slice(index).join(' ');
             }
 
+            // Clean body
             body = body.replace(/\|\]?/g, '').trim();
-            return `${headers.X}\n${headers.T}\n${headers.M}\n${headers.L}\n${headers.K}\n${body}`;
+
+            // Build output — include only headers that exist
+            const out = Object.keys(headers)
+                .sort((a, b) => {
+                    if (a === "X") return -1;
+                    if (b === "X") return 1;
+                    if (a === "K") return -1;
+                    if (b === "K") return 1;
+                    return a.localeCompare(b);
+                })
+                .map(k => headers[k])
+                .join('\n');
+
+            return `${out}\n${body}`;
         }
 
         // Async function: playABC - Plays a source URL ABC file, or a simple ABC notation melody with default header values
@@ -915,7 +947,8 @@
         // Command: whoislesley - Displays Lesley's contact and social links
         function cmdWhoislesley() {
             printToTerminal('Blog: https://lesley-o0.blogspot.com\n');
-            printToTerminal('LinkedIn: https://www.linkedin.com/in/lesley-phillips-ii');
+            printToTerminal('LinkedIn: https://www.linkedin.com/in/lesley-phillips-ii\n');
+            printToTerminal('GitHub: https://github.com/LesleyPhillips');
         }
 
         // Command: drawcorners - Draws solid block characters in the four corners of the screen
