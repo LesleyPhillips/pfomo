@@ -677,7 +677,7 @@
             // ABC-valid header letters (upper + lower case)
             const HEADER = "BCDFGHIKLMmNOPQRrSsTUVWwXZ";
 
-            // Regex to detect header tokens
+            // MULTI-LINE header regex (uses HEADER)
             const headerRegex = new RegExp(`^\\s*([${HEADER}]):\\s*(.*?)\\s*$`, "i");
 
             let body = '';
@@ -707,8 +707,11 @@
                 const tokens = normalizedInput.split(/\s+/).filter(Boolean);
                 let index = 0;
 
+                // SINGLE-LINE header regex (uses HEADER)
+                const singleHeaderRegex = new RegExp(`^([${HEADER}]):(.*)$`, "i");
+
                 while (index < tokens.length) {
-                    const match = tokens[index].match(/^([BCDFGHIKLMmNOPQRrSsTUVWwXZ]):(.+)$/i);
+                    const match = tokens[index].match(singleHeaderRegex);
                     if (!match) break;
 
                     const key = match[1].toUpperCase();
@@ -719,9 +722,6 @@
 
                 body = tokens.slice(index).join(' ');
             }
-
-            // Clean body
-            // body = body.replace(/\|\]?/g, '').trim();
 
             // Build output — include only headers that exist
             const out = Object.keys(headers)
