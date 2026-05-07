@@ -50,7 +50,7 @@
     <script>
         // Version function: returns current version string with date/time stamp
         function version() {
-            return "pfomo.com 20260507-1257";
+            return "pfomo.com 20260507-1303";
         }
 
         // DOM element reference: the terminal display container
@@ -721,7 +721,7 @@
             }
 
             // Clean body
-            body = body.replace(/\|\]?/g, '').trim();
+            // body = body.replace(/\|\]?/g, '').trim();
 
             // Build output — include only headers that exist
             const out = Object.keys(headers)
